@@ -56,7 +56,7 @@ export default function Uploader() {
 
     try {
       const sha256 = await computeSHA256(file);
-      setUploads((prev) => prev.map((u) => (u.id === upload.id ? { ...u, status: "uploading" } : u)));
+      setUploads((prev) => prev.map((u) => u.id === upload.id ? { ...u, status: "uploading" } : u));
 
       const initRes = await fetch("/api/upload", {
         method: "POST",
@@ -64,17 +64,17 @@ export default function Uploader() {
         body: JSON.stringify({ action: "init", filename: file.name, size: file.size, sha256 }),
       });
 
-      if (!initRes.ok) throw new Error("Initialization failed");
+      if (!initRes.ok) throw new Error("Init failed");
       const { actions, uniqueFilename } = await initRes.json();
 
       if (!actions?.upload) {
-        setUploads((prev) => prev.map((u) => (u.id === upload.id ? { ...u, status: "completed", progress: 100 } : u)));
+        setUploads((prev) => prev.map((u) => u.id === upload.id ? { ...u, status: "completed", progress: 100 } : u));
         return;
       }
 
       const uploadAction = actions.upload;
-      const completeUrl = uploadAction.href.includes("complete_multipart") ? uploadAction.href : undefined;
       const verifyUrl = actions.verify?.href;
+      const completeUrl = uploadAction.href.includes("complete_multipart") ? uploadAction.href : undefined;
 
       let uploadedBytes = 0;
       const startUploadTime = Date.now();
@@ -83,13 +83,19 @@ export default function Uploader() {
       for (let i = 1; i <= totalParts; i++) {
         const partKey = i.toString().padStart(5, '0');
         const partUrl = uploadAction.header?.[partKey] || uploadAction.href;
+        const partAuth = uploadAction.header?.Authorization; // Standard LFS auth header
+
         const start = (i - 1) * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, file.size);
         const chunk = file.slice(start, end);
 
         const partRes = await fetch("/api/upload", {
           method: "PUT",
-          headers: { "x-upload-url": partUrl, "Content-Type": "application/octet-stream" },
+          headers: {
+            "x-upload-url": partUrl,
+            "x-upload-auth": partAuth || "",
+            "Content-Type": "application/octet-stream"
+          },
           body: await chunk.arrayBuffer(),
         });
 

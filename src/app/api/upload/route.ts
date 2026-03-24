@@ -8,21 +8,23 @@ async function getUniqueFilename(filename: string): Promise<string> {
     headers: { Authorization: `Bearer ${HF_TOKEN}` },
   });
   if (!res.ok) return filename;
+
   const files = await res.json();
   const existingNames = new Set(files.map((f: any) => f.path));
+
   if (!existingNames.has(filename)) return filename;
 
   const dotIndex = filename.lastIndexOf(".");
-  const name = dotIndex !== -1 ? filename.substring(0, dotIndex) : filename;
+  const base = dotIndex !== -1 ? filename.substring(0, dotIndex) : filename;
   const ext = dotIndex !== -1 ? filename.substring(dotIndex) : "";
 
   let counter = 1;
-  let newName = `${name} (${counter})${ext}`;
-  while (existingNames.has(newName)) {
+  let candidate = `${base} (${counter})${ext}`;
+  while (existingNames.has(candidate)) {
     counter++;
-    newName = `${name} (${counter})${ext}`;
+    candidate = `${base} (${counter})${ext}`;
   }
-  return newName;
+  return candidate;
 }
 
 export async function POST(req: Request) {
@@ -79,10 +81,15 @@ export async function POST(req: Request) {
 
 export async function PUT(req: Request) {
   const url = req.headers.get("x-upload-url");
+  const authHeader = req.headers.get("x-upload-auth");
   if (!url) return NextResponse.json({ error: "Missing URL" }, { status: 400 });
+
   try {
     const body = await req.arrayBuffer();
-    const res = await fetch(url, { method: "PUT", body });
+    const headers: Record<string, string> = {};
+    if (authHeader) headers["Authorization"] = authHeader;
+
+    const res = await fetch(url, { method: "PUT", headers, body });
     if (!res.ok) throw new Error(`S3 failed: ${res.statusText}`);
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -104,7 +111,6 @@ export async function PATCH(req: Request) {
         });
       }
 
-      // Pointer MUST have exactly one newline at the end and no extra spaces
       const pointerContent = `version https://git-lfs.github.com/spec/v1\noid sha256:${sha256}\nsize ${size}\n`;
 
       const commitRes = await fetch(`https://huggingface.co/api/datasets/${REPO_ID}/commit/main`, {
@@ -119,8 +125,6 @@ export async function PATCH(req: Request) {
               content: Buffer.from(pointerContent).toString("base64"),
               encoding: "base64",
             },
-            // Ensure .gitattributes is present to track files via LFS
-            // This is critical for the UI to "resolve" the LFS file
             {
               action: "add",
               path: ".gitattributes",
